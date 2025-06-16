@@ -32,8 +32,8 @@ ollama pull deepseek-coder-v2:latest
 ### Get the App
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/IntelliDecomposer.CLI.git
-cd IntelliDecomposer.CLI
+git clone https://github.com/pwrmind/IntelliDecomposer.git
+cd IntelliDecomposer
 
 # Build it
 dotnet build
