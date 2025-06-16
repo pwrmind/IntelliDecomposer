@@ -2,10 +2,11 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.IO;
+using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 
 namespace IntelliDecomposer.CLI
 {
-    // Класс для представления узла дерева задач
     public class TaskNode
     {
         public string Description { get; set; } = "";
@@ -17,7 +18,6 @@ namespace IntelliDecomposer.CLI
         }
     }
 
-    // Класс для запроса к Ollama API
     public class OllamaGenerateRequest
     {
         [JsonPropertyName("model")]
@@ -27,7 +27,6 @@ namespace IntelliDecomposer.CLI
         public string Prompt { get; set; } = "";
     }
 
-    // Класс для обработки фрагментов ответа
     public class OllamaResponseChunk
     {
         [JsonPropertyName("model")]
@@ -43,6 +42,7 @@ namespace IntelliDecomposer.CLI
     class Program
     {
         private static readonly HttpClient client = new HttpClient();
+        private static readonly ConcurrentDictionary<string, bool> atomicityCache = new();
 
         static async Task<string> CallOllamaApi(string prompt)
         {
@@ -116,7 +116,7 @@ namespace IntelliDecomposer.CLI
             foreach (var subTask in decomposedTasks)
             {
                 Console.WriteLine($"🔎 Анализирую подзадачу: {subTask}");
-                if (IsAtomic(subTask))
+                if (await IsAtomic(subTask))
                 {
                     Console.WriteLine($"🟢 Атомарная: {subTask}");
                     currentNode.SubTasks.Add(new TaskNode(subTask));
@@ -168,12 +168,63 @@ namespace IntelliDecomposer.CLI
             return tasks;
         }
 
-        static bool IsAtomic(string task)
+        static async Task<bool> IsAtomic(string task)
         {
-            return task.Split(' ').Length < 8;
+            if (atomicityCache.TryGetValue(task, out bool cachedResult))
+            {
+                Console.WriteLine($"♻️ Использую кэшированный результат для: {task}");
+                return cachedResult;
+            }
+
+            var prompt = $@"Проанализируй, является ли следующая задача атомарной (не требует дальнейшей декомпозиции). 
+Ответь строго в формате JSON:
+{{
+  ""atomic"": true/false,
+  ""reason"": ""краткое объяснение""
+}}
+
+Задача: {task}";
+
+            Console.WriteLine($"🔬 Проверяю атомарность: {task}");
+            var response = await CallOllamaApi(prompt);
+            Console.WriteLine($"📄 Ответ на проверку атомарности: {response}");
+
+            try
+            {
+                // Пытаемся найти JSON в ответе
+                var jsonMatch = Regex.Match(response, @"\{.*\}");
+                if (jsonMatch.Success)
+                {
+                    response = jsonMatch.Value;
+                }
+
+                using JsonDocument doc = JsonDocument.Parse(response);
+                JsonElement root = doc.RootElement;
+
+                if (root.TryGetProperty("atomic", out JsonElement atomicElement) &&
+                    atomicElement.ValueKind == JsonValueKind.True)
+                {
+                    atomicityCache[task] = true;
+                    return true;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fallback: анализ текстового ответа
+                if (response.Contains("true", StringComparison.OrdinalIgnoreCase) ||
+                    response.Contains("да", StringComparison.OrdinalIgnoreCase) ||
+                    response.Contains("atomic", StringComparison.OrdinalIgnoreCase) ||
+                    response.Contains("атомарн", StringComparison.OrdinalIgnoreCase))
+                {
+                    atomicityCache[task] = true;
+                    return true;
+                }
+            }
+
+            atomicityCache[task] = false;
+            return false;
         }
 
-        // Метод для сохранения дерева в файл
         static void SaveTreeToFile(TaskNode root, string filePath)
         {
             using (var writer = new StreamWriter(filePath, false, Encoding.UTF8))
@@ -183,10 +234,8 @@ namespace IntelliDecomposer.CLI
             }
         }
 
-        // Рекурсивный метод записи узлов дерева
         static void WriteNode(StreamWriter writer, TaskNode node, int level)
         {
-            // Создаем отступ в зависимости от уровня вложенности
             string indent = new string(' ', level * 2);
             writer.WriteLine($"{indent}- {node.Description}");
 
@@ -212,25 +261,23 @@ namespace IntelliDecomposer.CLI
                 }
                 else
                 {
-                    task = @"Ты - аналитик высшего уровня, и ты занимаешься декомпозицией задачи на атомарные подзадачи.\n" +
-                        @"Основная задача: создание программы для управления задачами";
+                    task = "Ты - аналитик высшего уровня, и ты занимаешься декомпозицией задачи на атомарные подзадачи.\n" +
+                        "Основная задача: создание экспертной системы по предсказанию погоды";
                 }
 
-                Console.WriteLine($"🎯 Главная задача: {task}");
+                Console.WriteLine($"🎯 Главная задача: {task}\n");
 
                 var rootNode = await DecomposeTask(task);
 
-                // Сохраняем результат в файл
                 SaveTreeToFile(rootNode, outputFile);
-                Console.WriteLine($"\n💾 Результат сохранен в файл: {outputFile}");
+                Console.WriteLine($"\n💾 Результат сохранен в файл: {outputFile}\n");
 
-                // Дополнительно выводим дерево в консоль
                 Console.WriteLine("\n🌳 Итоговый план задач:");
                 Console.WriteLine(File.ReadAllText(outputFile));
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"💥 Критическая ошибка: {ex.Message}");
+                Console.WriteLine($"💥 Критическая ошибка: {ex.Message}\n\n");
                 Console.WriteLine(ex.StackTrace);
             }
         }
