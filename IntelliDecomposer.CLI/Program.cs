@@ -42,7 +42,7 @@ namespace IntelliDecomposer.CLI
     class Program
     {
         private static readonly HttpClient client = new HttpClient();
-        private static readonly ConcurrentDictionary<string, bool> atomicityCache = new();
+        private static readonly ConcurrentDictionary<string, (bool isAtomic, string reason)> atomicityCache = new();
 
         static async Task<string> CallOllamaApi(string prompt)
         {
@@ -95,15 +95,30 @@ namespace IntelliDecomposer.CLI
             return result;
         }
 
-        static async Task<TaskNode> DecomposeTask(string task)
+        static async Task<TaskNode> DecomposeTask(string task, string atomicityReason = null)
         {
-            var formattedTask = $"{task}\n\nПожалуйста, верни декомпозированные задачи в формате:\n" +
-                "```list\n" +
-                "- Задача 1\n" +
-                "- Задача 2\n" +
-                "```\n";
+            string reasonSection = atomicityReason != null
+                ? $"\n\nℹ️ Задача была признана НЕатомарной по причине: {atomicityReason}"
+                : "";
+
+            var formattedTask = $@"Задача: {task}
+{reasonSection}
+Декомпозируй задачу на подзадачи, которые, по возможности, должны быть атомарными (то есть не требовать дальнейшей декомпозиции). 
+Атомарная подзадача - это задача, которую может выполнить один специалист за один шаг без дополнительных пояснений.
+
+Пожалуйста, верни декомпозированные задачи в формате:
+```list
+- Задача 1
+- Задача 2
+- ...
+```";
 
             Console.WriteLine($"🔍 Декомпозирую задачу: {task}");
+            if (atomicityReason != null)
+            {
+                Console.WriteLine($"📌 Причина неатомарности: {atomicityReason}");
+            }
+
             var response = await CallOllamaApi(formattedTask);
 
             Console.WriteLine($"📋 Сырой ответ от API:\n{response}");
@@ -116,7 +131,8 @@ namespace IntelliDecomposer.CLI
             foreach (var subTask in decomposedTasks)
             {
                 Console.WriteLine($"🔎 Анализирую подзадачу: {subTask}");
-                if (await IsAtomic(subTask))
+                var (isAtomic, reason) = await IsAtomic(subTask);
+                if (isAtomic)
                 {
                     Console.WriteLine($"🟢 Атомарная: {subTask}");
                     currentNode.SubTasks.Add(new TaskNode(subTask));
@@ -124,7 +140,8 @@ namespace IntelliDecomposer.CLI
                 else
                 {
                     Console.WriteLine($"🔄 Рекурсивная декомпозиция: {subTask}");
-                    var subNode = await DecomposeTask(subTask);
+                    Console.WriteLine($"📌 Причина неатомарности: {reason}");
+                    var subNode = await DecomposeTask(subTask, reason);
                     currentNode.SubTasks.Add(subNode);
                 }
             }
@@ -168,9 +185,9 @@ namespace IntelliDecomposer.CLI
             return tasks;
         }
 
-        static async Task<bool> IsAtomic(string task)
+        static async Task<(bool isAtomic, string reason)> IsAtomic(string task)
         {
-            if (atomicityCache.TryGetValue(task, out bool cachedResult))
+            if (atomicityCache.TryGetValue(task, out var cachedResult))
             {
                 Console.WriteLine($"♻️ Использую кэшированный результат для: {task}");
                 return cachedResult;
@@ -201,28 +218,45 @@ namespace IntelliDecomposer.CLI
                 using JsonDocument doc = JsonDocument.Parse(response);
                 JsonElement root = doc.RootElement;
 
-                if (root.TryGetProperty("atomic", out JsonElement atomicElement) &&
-                    atomicElement.ValueKind == JsonValueKind.True)
+                bool isAtomic = false;
+                string reason = "Не удалось определить причину";
+
+                if (root.TryGetProperty("atomic", out JsonElement atomicElement))
                 {
-                    atomicityCache[task] = true;
-                    return true;
+                    isAtomic = atomicElement.ValueKind == JsonValueKind.True;
                 }
+
+                if (root.TryGetProperty("reason", out JsonElement reasonElement) &&
+                    reasonElement.ValueKind == JsonValueKind.String)
+                {
+                    reason = reasonElement.GetString() ?? reason;
+                }
+
+                atomicityCache[task] = (isAtomic, reason);
+                return (isAtomic, reason);
             }
             catch (JsonException)
             {
                 // Fallback: анализ текстового ответа
+                bool isAtomic = false;
+                string reason = "Ошибка парсинга JSON, использован fallback анализ";
+
                 if (response.Contains("true", StringComparison.OrdinalIgnoreCase) ||
                     response.Contains("да", StringComparison.OrdinalIgnoreCase) ||
                     response.Contains("atomic", StringComparison.OrdinalIgnoreCase) ||
                     response.Contains("атомарн", StringComparison.OrdinalIgnoreCase))
                 {
-                    atomicityCache[task] = true;
-                    return true;
+                    isAtomic = true;
+                    reason = "Ответ содержит индикатор атомарности";
                 }
-            }
+                else
+                {
+                    reason = "Ответ не содержит индикаторов атомарности";
+                }
 
-            atomicityCache[task] = false;
-            return false;
+                atomicityCache[task] = (isAtomic, reason);
+                return (isAtomic, reason);
+            }
         }
 
         static void SaveTreeToFile(TaskNode root, string filePath)
