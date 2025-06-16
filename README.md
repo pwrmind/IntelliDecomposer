@@ -82,6 +82,31 @@ graph TD
     K --> L[Рекурсивная декомпозиция<br>с передачей причины]
     L --> H
 ```
+---
+```mermaid
+sequenceDiagram
+    participant Main
+    participant DecomposeTask
+    participant IsAtomic
+    participant OllamaAPI
+    
+    Main->>DecomposeTask: Стартовая задача
+    DecomposeTask->>OllamaAPI: Запрос на декомпозицию
+    OllamaAPI-->>DecomposeTask: Список подзадач
+    loop Для каждой подзадачи
+        DecomposeTask->>IsAtomic: Проверка атомарности
+        IsAtomic->>OllamaAPI: Запрос на проверку
+        OllamaAPI-->>IsAtomic: Ответ (атомарность + причина)
+        alt Атомарная
+            IsAtomic-->>DecomposeTask: (true, причина)
+            DecomposeTask->>DecomposeTask: Добавить как лист
+        else Неатомарная
+            IsAtomic-->>DecomposeTask: (false, причина)
+            DecomposeTask->>DecomposeTask: Рекурсия с причиной
+        end
+    end
+    DecomposeTask-->>Main: Дерево задач
+```
 
 1. **AI Prompting** 🔮  
    We send tasks to Ollama with special formatting instructions
