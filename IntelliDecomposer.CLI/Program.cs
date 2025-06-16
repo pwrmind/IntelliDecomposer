@@ -1,10 +1,23 @@
 ﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.IO;
 
 namespace IntelliDecomposer.CLI
 {
-    // Новый класс для запроса к Ollama API
+    // Класс для представления узла дерева задач
+    public class TaskNode
+    {
+        public string Description { get; set; } = "";
+        public List<TaskNode> SubTasks { get; set; } = new List<TaskNode>();
+
+        public TaskNode(string description)
+        {
+            Description = description;
+        }
+    }
+
+    // Класс для запроса к Ollama API
     public class OllamaGenerateRequest
     {
         [JsonPropertyName("model")]
@@ -36,11 +49,9 @@ namespace IntelliDecomposer.CLI
             var url = "http://localhost:11434/api/generate";
             var request = new OllamaGenerateRequest { Prompt = prompt };
 
-            // 🔄 Сериализация запроса
             var requestBody = JsonSerializer.Serialize(request);
             var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
 
-            // 📤 Отправка запроса
             Console.WriteLine("🚀 Отправляю запрос к Ollama API...");
             Console.WriteLine($"🔧 Модель: {request.Model}");
             Console.WriteLine($"📝 Промпт: {prompt[..Math.Min(prompt.Length, 50)]}...");
@@ -49,7 +60,6 @@ namespace IntelliDecomposer.CLI
             response.EnsureSuccessStatusCode();
             Console.WriteLine("✅ Ответ успешно получен");
 
-            // 📥 Чтение потока ответа
             var responseStream = await response.Content.ReadAsStreamAsync();
             using var reader = new StreamReader(responseStream);
 
@@ -63,7 +73,6 @@ namespace IntelliDecomposer.CLI
 
                 try
                 {
-                    // 🔍 Десериализация фрагмента
                     var chunk = JsonSerializer.Deserialize<OllamaResponseChunk>(line);
                     if (chunk == null) continue;
 
@@ -86,9 +95,8 @@ namespace IntelliDecomposer.CLI
             return result;
         }
 
-        static async Task<List<string>> DecomposeTask(string task)
+        static async Task<TaskNode> DecomposeTask(string task)
         {
-            // ✨ Форматируем запрос с инструкцией
             var formattedTask = $"{task}\n\nПожалуйста, верни декомпозированные задачи в формате:\n" +
                 "```list\n" +
                 "- Задача 1\n" +
@@ -98,31 +106,30 @@ namespace IntelliDecomposer.CLI
             Console.WriteLine($"🔍 Декомпозирую задачу: {task}");
             var response = await CallOllamaApi(formattedTask);
 
-            // 📝 Логируем сырой ответ
             Console.WriteLine($"📋 Сырой ответ от API:\n{response}");
 
             var decomposedTasks = ParseDecomposedTasks(response);
             Console.WriteLine($"📌 Найдено подзадач: {decomposedTasks.Count}");
 
-            // ♻️ Рекурсивная декомпозиция
-            List<string> atomicTasks = new List<string>();
+            TaskNode currentNode = new TaskNode(task);
+
             foreach (var subTask in decomposedTasks)
             {
                 Console.WriteLine($"🔎 Анализирую подзадачу: {subTask}");
                 if (IsAtomic(subTask))
                 {
                     Console.WriteLine($"🟢 Атомарная: {subTask}");
-                    atomicTasks.Add(subTask);
+                    currentNode.SubTasks.Add(new TaskNode(subTask));
                 }
                 else
                 {
                     Console.WriteLine($"🔄 Рекурсивная декомпозиция: {subTask}");
-                    var subAtomicTasks = await DecomposeTask(subTask);
-                    atomicTasks.AddRange(subAtomicTasks);
+                    var subNode = await DecomposeTask(subTask);
+                    currentNode.SubTasks.Add(subNode);
                 }
             }
 
-            return atomicTasks;
+            return currentNode;
         }
 
         static List<string> ParseDecomposedTasks(string response)
@@ -135,7 +142,6 @@ namespace IntelliDecomposer.CLI
             {
                 var trimmedLine = line.Trim();
 
-                // 🔍 Поиск маркера начала списка
                 if (trimmedLine.Contains("```list"))
                 {
                     Console.WriteLine("📋 Найден блок list");
@@ -143,17 +149,14 @@ namespace IntelliDecomposer.CLI
                     continue;
                 }
 
-                // 🛑 Конец блока
                 if (trimmedLine.StartsWith("```") && inListBlock)
                 {
                     inListBlock = false;
                     continue;
                 }
 
-                // ✨ Добавление элементов списка
                 if (inListBlock && !string.IsNullOrWhiteSpace(trimmedLine))
                 {
-                    // Убираем маркеры списка (-, *, • и т.д.)
                     var cleanLine = trimmedLine.TrimStart('-', '*', '•', ' ');
                     if (!string.IsNullOrEmpty(cleanLine))
                     {
@@ -167,8 +170,30 @@ namespace IntelliDecomposer.CLI
 
         static bool IsAtomic(string task)
         {
-            // 🧪 Упрощенная логика определения атомарности
-            return task.Split(' ').Length < 8; // Задачи с <5 словами считаем атомарными
+            return task.Split(' ').Length < 8;
+        }
+
+        // Метод для сохранения дерева в файл
+        static void SaveTreeToFile(TaskNode root, string filePath)
+        {
+            using (var writer = new StreamWriter(filePath, false, Encoding.UTF8))
+            {
+                writer.WriteLine("## План декомпозиции задач ##\n");
+                WriteNode(writer, root, 0);
+            }
+        }
+
+        // Рекурсивный метод записи узлов дерева
+        static void WriteNode(StreamWriter writer, TaskNode node, int level)
+        {
+            // Создаем отступ в зависимости от уровня вложенности
+            string indent = new string(' ', level * 2);
+            writer.WriteLine($"{indent}- {node.Description}");
+
+            foreach (var child in node.SubTasks)
+            {
+                WriteNode(writer, child, level + 1);
+            }
         }
 
         static async Task Main(string[] args)
@@ -178,17 +203,30 @@ namespace IntelliDecomposer.CLI
 
             try
             {
-                var task = @"Ты - аналитик высшего уровня, и ты занимаешься декомпозицией задачи на атомарные n\" +
-                    @"Озновная задача которую надо декомпозировать на подзадачи: создание программы для управления задачами";
+                string task = "";
+                string outputFile = "decomposition_plan.md";
+
+                if (args.Length > 0)
+                {
+                    task = string.Join(" ", args);
+                }
+                else
+                {
+                    task = @"Ты - аналитик высшего уровня, и ты занимаешься декомпозицией задачи на атомарные подзадачи.\n" +
+                        @"Основная задача: создание программы для управления задачами";
+                }
+
                 Console.WriteLine($"🎯 Главная задача: {task}");
 
-                var atomicTasks = await DecomposeTask(task);
+                var rootNode = await DecomposeTask(task);
 
-                Console.WriteLine("\n📋 Итоговый список атомарных задач:");
-                foreach (var atomicTask in atomicTasks)
-                {
-                    Console.WriteLine($"✅ {atomicTask}");
-                }
+                // Сохраняем результат в файл
+                SaveTreeToFile(rootNode, outputFile);
+                Console.WriteLine($"\n💾 Результат сохранен в файл: {outputFile}");
+
+                // Дополнительно выводим дерево в консоль
+                Console.WriteLine("\n🌳 Итоговый план задач:");
+                Console.WriteLine(File.ReadAllText(outputFile));
             }
             catch (Exception ex)
             {
