@@ -1,0 +1,182 @@
+agents:
+  - id: project_analyst
+    prompt: |
+      РОЛЬ: Ты аналитик специализирующийся на описании проектов.
+      ЗАДАЧА: Придумай название для проекта и создай описание
+
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+      ```
+
+      ДАННЫЕ:
+      ```yaml
+      project:
+        name: {{data}}
+      ```
+
+      
+  - id: epic_analyst
+    prompt: |
+      РОЛЬ: Ты аналитик специализирующийся на декомпозиции проектов на эпики.
+      ЗАДАЧА: Декомпозиция проект на эпики
+
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+        epics:
+          - title: string
+            description: string
+      ```
+
+      ДАННЫЕ:
+      ```yaml
+      {{data}}
+      ```
+
+  - id: feature_analyst
+    prompt: |
+      РОЛЬ: Ты аналитик специализирующийся на декомпозиции эпиков на фичи.
+      ЗАДАЧА: Декомпозиция эпики на фичи
+      
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+        epics:
+          - title: string
+            description: string
+            features:
+              - title: string
+                description: string
+      ```
+      
+      ДАННЫЕ:
+      ```yaml
+      {{data}}
+      ```
+
+
+  - id: story_analyst
+    prompt: |
+      РОЛЬ: Ты аналитик специализирующийся на декомпозиции фич на стори.
+      ЗАДАЧА: Декомпозиция эпики на фичи
+      
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+        epics:
+          - title: string
+            description: string
+            features:
+              - title: string
+                description: string
+                stories:
+                  - title: string
+                    description: string
+      ```
+      
+      ДАННЫЕ:
+      ```yaml
+      {{data}}
+      ```
+
+  - id: task_analyst
+    prompt: |
+      РОЛЬ: Ты аналитик специализирующийся на декомпозиции стори на таски.
+      ЗАДАЧА: Декомпозиция стори на таски
+      
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+        epics:
+          - title: string
+            description: string
+            features:
+              - title: string
+                description: string
+                stories:
+                  - title: string
+                    description: string
+                    tasks:
+                      - title: string
+                        description: string
+      ```
+      
+      ДАННЫЕ:
+      ```yaml
+      {{data}}
+      ```
+
+  - id: backlog_groomer
+    prompt: |
+      РОЛЬ: Ты груммер беклога (backlog groomer)
+      ЗАДАЧА: Вычисти проект от задач, которые не соглассованны с целью, не соответствуют цели проекта, не влияют на достижение главной цели
+      
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+        epics:
+          - title: string
+            description: string
+            features:
+              - title: string
+                description: string
+                stories:
+                  - title: string
+                    description: string
+      ```
+
+      ДАННЫЕ:
+      ```yaml
+      {{data}}
+      ```
+
+  - id: wording_reviewer
+    prompt: |
+      РОЛЬ: Ты рецензент формулировок (wording reviewer) специализирующийся.
+      ЗАДАЧА: Переформулируй названия (titles) и описания (descriptions). Они дложны обладать полнотой, корректностью, недвусмысленность, 
+      
+      КОНТРАКТ:
+      ```yaml
+      project:
+        name: string
+        description: string
+        epics:
+          - title: string
+            description: string
+            features:
+              - title: string
+                description: string
+                stories:
+                  - title: string
+                    description: string
+                    tasks:
+                      - title: string
+                        description: string
+      ```
+      
+      ДАННЫЕ:
+      ```yaml
+      {{data}}
+      ```
+
+pipeline:
+  - project_analyst
+  - epic_analyst
+  - feature_analyst
+  - story_analyst
+  - backlog_groomer
+  - task_analyst
+  - wording_reviewer

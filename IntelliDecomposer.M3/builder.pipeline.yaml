@@ -1,0 +1,17 @@
+agents:
+  - id: agent_descriptor
+    prompt: |
+      РОЛЬ: Ты специалист по описанию llm агентов
+      ЗАДАЧА: {{data}}. Опиши агентов в YAML формате.
+
+      КОНТРАКТ:
+      ```yaml
+      agents:
+        - id: srake_case_id
+          prompt: string
+      pipeline:
+        - string
+      ```
+
+pipeline:
+  - agent_descriptor

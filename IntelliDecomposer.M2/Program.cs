@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
 public enum TaskStatus
 {
@@ -304,13 +298,13 @@ class Program
         string contextPrompt = BuildContextPrompt(task);
 
         string prompt = $@"{contextPrompt}
-
 [Инструкция]
 Декомпозируй последнюю задачу ({task.Description}) на 3-7 конкретных подзадач, учитывая:
 1. Весь контекст родительских задач
 2. Текущий уровень вложенности ({task.Depth}/{_maxDepth})
 3. Подзадачи должны быть независимыми и выполнимыми
-4. Избегай избыточной детализации
+4. Избегай избыточной детализации, но не в ущерб смыслу
+5. Если родительскую задача содержит перечисление, то необходимо декомпозировать
 
 Ответь только в формате JSON: {{
   ""subtasks"": [""задача1"", ""задача2"", ...],
@@ -412,7 +406,7 @@ class Program
         string statusIcon = GetStatusIcon(node.Status);
         string depthInfo = $"[{node.Depth}]";
 
-        Console.WriteLine($"{indentStr}{statusIcon} {depthInfo} {node.Description}");
+        Console.WriteLine($"{indentStr}{statusIcon} {node.Description}");
 
         foreach (var child in node.Children)
         {
@@ -427,8 +421,8 @@ class Program
             TaskStatus.New => "🆕",
             TaskStatus.Evaluating => "🧠",
             TaskStatus.Decomposing => "🔨",
-            TaskStatus.Completed => "✅",
-            TaskStatus.MaxDepthExceeded => "⛔",
+            TaskStatus.Completed => "-",
+            TaskStatus.MaxDepthExceeded => "-",
             TaskStatus.Failed => "❌",
             TaskStatus.WaitingForChildren => "⏳",
             _ => "�"
